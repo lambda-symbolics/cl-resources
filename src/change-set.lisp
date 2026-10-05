@@ -170,6 +170,7 @@ does not invalidate published state; recovery retries cleanup, never rollback.")
   (bordeaux-threads:with-lock-held ((change-set--lock set))
     (let ((*change-set--active* (cons set *change-set--active*)))
       (funcall thunk))))
+
 (defun change-set--require-state (set allowed)
   "Reject operations outside ALLOWED states."
   (unless (member (change-set-state set) allowed)
@@ -232,6 +233,31 @@ does not invalidate published state; recovery retries cleanup, never rollback.")
           :report "Retry pending rollback or cleanup with retained adapter state."
           (change-set--cleanup-or-error set published-p cause))))))
 
+(defun change-set--release-unreturned (set cause failures &key retry-p)
+  "Release staging handles never returned to a caller, or expose retryable ownership.
+A pending inner cleanup is exposed rather than implicitly retried. The restart
+reacquires all scopes, including after an interrupted scope or cleanup callback."
+  (when (null (change-set--entries set))
+    (setf (change-set-state set) ':aborted))
+  (unless (eq (change-set-state set) ':aborted)
+    (unwind-protect
+         (when (or retry-p (not (eq (change-set-state set) ':recovery-required)))
+           (handler-case
+               (change-set--with-scopes
+                set (lambda () (setf failures (change-set--cleanup set nil))))
+             (error (condition) (push condition failures))))
+      (unless (eq (change-set-state set) ':aborted)
+        (setf (change-set-state set) ':recovery-required)
+        (restart-case
+            (error 'change-set-error :set set :cause cause
+                   :failures (or failures
+                                 (list (make-condition
+                                        'resource-protocol-error
+                                        :reason "unreturned staging cleanup was interrupted"))))
+          (retry-recovery ()
+            :report "Reacquire scopes and release retained, unreturned staging handles."
+            (change-set--release-unreturned set cause nil :retry-p t)))))))
+
 (defun change-set-stage (requests context &key publisher)
   "Stage REQUESTS under backend scopes and return a change-set in :staged state.
 Duplicate canonical URIs are rejected. PUBLISHER receives SET, the complete
@@ -249,40 +275,54 @@ atomically publish or signal without externally visible partial publication."
         (setf (gethash uri identities) t))))
   (let ((set (make-instance 'change-set :requests (copy-list requests)
                             :context context :publisher publisher))
-        (staged-p nil)
-        (cause nil))
-    (change-set--with-scopes
+        (returned-p nil)
+        (cause nil)
+        (failures nil))
+    (change-set--call-serialized
      set
      (lambda ()
        (unwind-protect
-            (handler-bind ((error (lambda (condition) (setf cause condition))))
-              ;; Validate every revision before allocating any prepared payload.
-              (dolist (request requests)
-                (resource-check-revision (resource-change-resource request) context
-                                         (resource-change-base-revision request)))
-              (dolist (request requests)
-                (let* ((resource (resource-change-resource request))
-                       (change (resource-stage-operations
-                                resource context
-                                :base-revision (resource-change-base-revision request)
-                                :operations (resource-change-operations request))))
-                  (unless (typep change 'prepared-change)
-                    (error 'resource-protocol-error :uri (resource-uri resource)
-                           :reason "stage must return a prepared-change"))
-                  ;; Retain even a malformed returned handle for cleanup.
-                  (setf (change-set--entries set)
-                        (append (change-set--entries set)
-                                (list (change-entry--make change))))
-                  (unless (and (eq resource (prepared-change-resource change))
-                               (equal (resource-change-base-revision request)
-                                      (prepared-change-base-revision change)))
-                    (error 'resource-protocol-error :uri (resource-uri resource)
-                           :reason "prepared change must match resource and base revision"))))
+            (handler-bind ((error (lambda (condition)
+                                   (unless cause (setf cause condition)))))
+              (change-set--with-scopes
+               set
+               (lambda ()
+                 (let ((prepared-p nil))
+                   (unwind-protect
+                        (progn
+                          ;; Validate every revision before allocating any payload.
+                          (dolist (request requests)
+                            (resource-check-revision
+                             (resource-change-resource request) context
+                             (resource-change-base-revision request)))
+                          (dolist (request requests)
+                            (let* ((resource (resource-change-resource request))
+                                   (change (resource-stage-operations
+                                            resource context
+                                            :base-revision (resource-change-base-revision request)
+                                            :operations (resource-change-operations request))))
+                              (unless (typep change 'prepared-change)
+                                (error 'resource-protocol-error :uri (resource-uri resource)
+                                       :reason "stage must return a prepared-change"))
+                              ;; Retain malformed returned handles for cleanup as well.
+                              (setf (change-set--entries set)
+                                    (append (change-set--entries set)
+                                            (list (change-entry--make change))))
+                              (unless (and (eq resource (prepared-change-resource change))
+                                           (equal (resource-change-base-revision request)
+                                                  (prepared-change-base-revision change)))
+                                (error 'resource-protocol-error :uri (resource-uri resource)
+                                       :reason "prepared change must match resource and base revision"))))
+                          (setf prepared-p t))
+                     (unless prepared-p
+                       ;; Compensate thunk failures while all original scopes are held.
+                       (setf failures (change-set--cleanup set nil)))))))
+              ;; Ownership transfers only after every enclosing scope returns normally.
               (setf (change-set-state set) ':staged
-                    staged-p t))
-         (unless staged-p
-           (change-set--cleanup-or-error set nil cause)))))
-    set))
+                    returned-p t)
+              set)
+         (unless returned-p
+           (change-set--release-unreturned set cause failures)))))))
 
 (defun change-set-commit (set)
   "Revalidate all bases, commit all changes, observe, and publish once.

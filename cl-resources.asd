@@ -16,7 +16,8 @@
   :serial t
   :components ((:file "tests/tests")
                (:file "tests/revision-guard")
-               (:file "tests/concurrency"))
+               (:file "tests/concurrency")
+               (:file "tests/stage-ownership"))
   :perform (asdf:test-op (operation system)
              (declare (ignore operation system))
              (uiop:symbol-call :cl-resources :run-tests)))

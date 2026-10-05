@@ -139,6 +139,15 @@ commit that partially mutated state. Untouched changes are discarded. Once all
 compensation succeeds, the set becomes `:aborted` and the original condition
 propagates. Nonlocal exits also run compensation.
 
+Staging owns every returned prepared handle until the entire nested scope call
+returns normally. A scope failure or nonlocal exit after preparation triggers
+scoped discard, reacquiring scopes when necessary. If scope reacquisition or
+discard fails or is interrupted, `change-set-error` exposes the retained set
+in `:recovery-required`. This condition takes precedence over a nonlocal exit
+when necessary to transfer ownership of unreleased handles. Its `retry-recovery`
+restart reacquires scopes and retries cleanup; otherwise retain the set and
+recover after unwinding. The original error, when present, is its `cause`.
+
 A compensation failure signals `change-set-error`, with readers for `set`,
 `cause` and the list of recovery `failures`. The set becomes
 `:recovery-required`; retain it and call `change-set-recover`. Successfully
