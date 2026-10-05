@@ -139,9 +139,9 @@ commit that partially mutated state. Untouched changes are discarded. Once all
 compensation succeeds, the set becomes `:aborted` and the original condition
 propagates. Nonlocal exits also run compensation.
 
-Staging owns every returned prepared handle until the entire nested scope call
-returns normally. A scope failure or nonlocal exit after preparation triggers
-scoped discard, reacquiring scopes when necessary. If scope reacquisition or
+The staging journal owns registered prepared handles until the entire nested
+scope call returns normally. A scope failure or nonlocal exit after preparation
+triggers scoped discard, reacquiring scopes when necessary. If scope reacquisition or
 discard fails or is interrupted, `change-set-error` exposes the retained set
 in `:recovery-required`. This condition takes precedence over a nonlocal exit
 when necessary to transfer ownership of unreleased handles. Its `retry-recovery`
@@ -171,6 +171,40 @@ After publication, finalize failure produces `:cleanup-required` and the same
 recoverable condition. Recovery retries only incomplete finalization. Committed
 state and observations are preserved; publication is not repeated. Successful
 cleanup yields `:committed`. Recovery of a terminal set is an idempotent no-op.
+
+### Asynchronous cancellation ownership
+
+Returning a prepared handle to the staging journal and returning a set to its
+caller are ownership handoffs. Common Lisp has no portable interruption-deferral
+primitive; the per-set lock serializes callers but does not make these handoffs
+atomic against asynchronous thread cancellation. Applications that deliver such
+cancellation must defer it across stage invocation, handle registration and
+recording the returned set or recovery condition in an application-owned journal.
+Deferring only inside `resource-stage-operations` leaves the return-to-registration
+window unprotected. Publication likewise requires deferral across publisher
+success and recording the library's publication marker.
+
+Keep those handoffs short. Adapters may selectively permit interruption during
+backend I/O once payload and undo ownership has been journaled. Preparation I/O
+that permits interruption must first establish adapter-owned, unwind-safe cleanup
+of partial allocations. The library does not disable cancellation in backend
+callbacks or supply an implementation-specific interrupt policy.
+
+Run the optional SBCL handoff diagnostic by itself from the repository root:
+
+```sh
+sbcl --noinform --non-interactive \
+  --eval '(require :asdf)' \
+  --eval '(asdf:load-asd (truename "cl-resources.asd"))' \
+  --eval '(asdf:load-system "cl-resources/tests")' \
+  --eval '(load "tests/async-handoff-repro.lisp")' \
+  --eval '(format t "~S~%" (cl-resources::reproduce-asynchronous-stage-handoff))'
+```
+
+The diagnostic gates internal registration and interrupts a real thread. It
+reports the unprotected handoff and checks that application-owned deferral
+retains the set and releases its prepared handle. The fixture owns only memory;
+it temporarily replaces the entry constructor and restores it on exit.
 
 Recovery reacquires backend scopes. If other writers can intervene between
 failure and recovery, the adapter must reject unsafe compensation instead of
