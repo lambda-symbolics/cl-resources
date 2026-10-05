@@ -658,5 +658,6 @@
     (test-real-file-rollback)
     (test-operation-discovery)
     (test-caller-scoped-revision-guard)
+    (test-concurrent-lifecycle)
     (format t "~&cl-resources: ~D checks passed.~%" *test-checks*)
     *test-checks*))

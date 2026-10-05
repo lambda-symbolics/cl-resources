@@ -2,7 +2,7 @@
 
 Authority-neutral, revisioned resources for Common Lisp. The library provides
 URI resolution, observations, operation discovery and recoverable staged change
-sets. It depends only on Common Lisp and ASDF. Package: `cl-resources`.
+sets. Dependencies: ASDF and Bordeaux Threads. Package: `cl-resources`.
 
 ## Load and test
 
@@ -147,7 +147,16 @@ steps while current backend scopes are held. An interrupted rollback step
 retains its previous phase for retry.
 During cleanup, the transient `:recovering` state rejects reentrant lifecycle
 calls. A nonlocal exit from rollback, discard or finalize leaves a retryable
-pending state. Serialize lifecycle calls for each set at the application boundary.
+pending state.
+
+Lifecycle calls acquire a per-set Bordeaux Threads lock before backend scopes,
+including for empty sets. Concurrent callers wait and recheck state after the
+preceding call releases its lock. Calls on the same set from its own callbacks
+signal `change-set-state-error` instead of recursively entering or deadlocking.
+Use `retry-recovery` inside a failure handler, or retain the set and recover
+after unwinding. Across different sets, avoid nested lifecycle calls that
+reverse set-lock or backend-lock order. Lifecycle readers are diagnostic
+snapshots; coordinate readers externally when an atomic view is required.
 
 After publication, finalize failure produces `:cleanup-required` and the same
 recoverable condition. Recovery retries only incomplete finalization. Committed
@@ -206,13 +215,14 @@ signaling their own stale condition.
 
 ## Tests and license
 
-The dependency-free tests cover URI grammar, resolver replacement/removal,
+The tests cover URI grammar, resolver replacement/removal,
 identity and observation validation, authority callbacks, operation discovery,
 single and multiple resources, stale staging and commit, lexical scope ordering,
 publication, nonlocal exits, repeated lifecycle calls and a deterministic
 fault/recovery matrix at every batch position. Faults include partial commit,
 partial rollback, discard and post-publication cleanup. Additional tests exercise
 interrupted cleanup, rejected scope callbacks, malformed prepared handles and
-exact byte restoration of real files after partial installation.
+exact byte restoration of real files after partial installation. Real concurrent
+callers exercise empty-set publication and abort queued behind publication.
 
 ISC license, copyright 2026 Lambda Symbolics.

@@ -122,7 +122,10 @@ does not invalidate published state; recovery retries cleanup, never rollback.")
   (phase ':prepared))
 
 (defclass change-set ()
-  ((requests :initarg :requests :reader change-set--requests
+  ((lock :initform (bordeaux-threads:make-lock "resource change set")
+         :reader change-set--lock
+         :documentation "Serialize this set independently of backend scopes.")
+   (requests :initarg :requests :reader change-set--requests
              :documentation "Original requests in caller order.")
    (context :initarg :context :reader change-set--context
             :documentation "Explicit external caller context.")
@@ -157,6 +160,16 @@ does not invalidate published state; recovery retries cleanup, never rollback.")
              (format stream "Change set operation is invalid in state ~S."
                      (change-set-state-error-state condition)))))
 
+(defvar *change-set--active* nil
+  "Sets whose lifecycle is active in this thread; reject callback reentrancy.")
+
+(defun change-set--call-serialized (set thunk)
+  "Serialize SET's full lifecycle call, rejecting same-thread reentrancy."
+  (when (member set *change-set--active*)
+    (error 'change-set-state-error :state (change-set-state set)))
+  (bordeaux-threads:with-lock-held ((change-set--lock set))
+    (let ((*change-set--active* (cons set *change-set--active*)))
+      (funcall thunk))))
 (defun change-set--require-state (set allowed)
   "Reject operations outside ALLOWED states."
   (unless (member (change-set-state set) allowed)
@@ -276,56 +289,71 @@ atomically publish or signal without externally visible partial publication."
 Failures before publication restore every started backend, in reverse order.
 After publication, failed cleanup is retryable without republishing or rollback.
 Return SET and its observations as two values."
-  (change-set--require-state set '(:staged))
-  (let ((published-p nil)
-        (cause nil))
-    (change-set--with-scopes
-     set
-     (lambda ()
-       (change-set--require-state set '(:staged))
-       (setf (change-set-state set) ':committing)
-       (unwind-protect
-            (handler-bind ((error (lambda (condition) (setf cause condition))))
-              (dolist (entry (change-set--entries set))
-                (prepared-change-validate (change-entry-change entry)
-                                          (change-set--context set)))
-              (dolist (entry (change-set--entries set))
-                ;; Mark before calling: a failing commit may have mutated state.
-                (setf (change-entry-phase entry) ':started)
-                (prepared-change-commit (change-entry-change entry)
-                                        (change-set--context set))
-                (setf (change-entry-phase entry) ':committed))
-              (let ((observations
-                      (mapcar (lambda (request)
-                                (resource-observe (resource-change-resource request)
-                                                  (change-set--context set)))
-                              (change-set--requests set))))
-                (when (change-set--publisher set)
-                  (funcall (change-set--publisher set) set observations
-                           (change-set--context set)))
-                (setf (slot-value set 'observations) observations
-                      published-p t
-                      (change-set-state set) ':published)))
-         (change-set--cleanup-or-error set published-p cause)))))
-  (values set (change-set-observations set)))
+  (change-set--call-serialized
+   set
+   (lambda ()
+     (change-set--require-state set '(:staged))
+     (let ((published-p nil)
+           (cause nil))
+       (change-set--with-scopes
+        set
+        (lambda ()
+          (change-set--require-state set '(:staged))
+          (setf (change-set-state set) ':committing)
+          (unwind-protect
+               (handler-bind ((error (lambda (condition) (setf cause condition))))
+                 (dolist (entry (change-set--entries set))
+                   (prepared-change-validate (change-entry-change entry)
+                                             (change-set--context set)))
+                 (dolist (entry (change-set--entries set))
+                   ;; Mark before calling: a failing commit may have mutated state.
+                   (setf (change-entry-phase entry) ':started)
+                   (prepared-change-commit (change-entry-change entry)
+                                           (change-set--context set))
+                   (setf (change-entry-phase entry) ':committed))
+                 (let ((observations
+                         (mapcar (lambda (request)
+                                   (resource-observe (resource-change-resource request)
+                                                     (change-set--context set)))
+                                 (change-set--requests set))))
+                   (when (change-set--publisher set)
+                     (funcall (change-set--publisher set) set observations
+                              (change-set--context set)))
+                   (setf (slot-value set 'observations) observations
+                         published-p t
+                         (change-set-state set) ':published)))
+            (change-set--cleanup-or-error set published-p cause)))))
+     (values set (change-set-observations set)))))
 
 (defun change-set-abort (set)
   "Discard a staged set. An already aborted set is an idempotent no-op."
-  (change-set--require-state set '(:staged :aborted))
-  (unless (eq (change-set-state set) ':aborted)
-    (change-set--with-scopes
-     set (lambda () (change-set--cleanup-or-error set nil))))
-  set)
+  (change-set--call-serialized
+   set
+   (lambda ()
+     (change-set--require-state set '(:staged :aborted))
+     (unless (eq (change-set-state set) ':aborted)
+       (change-set--with-scopes
+        set (lambda ()
+              (change-set--require-state set '(:staged :aborted))
+              (unless (eq (change-set-state set) ':aborted)
+                (change-set--cleanup-or-error set nil)))))
+     set)))
 
 (defun change-set-recover (set)
   "Retry failed rollback/discard or post-publication finalization.
 Completed steps are not repeated. Use the retained set in change-set-error."
-  (change-set--require-state set '(:recovery-required :cleanup-required :aborted :committed))
-  (when (member (change-set-state set) '(:recovery-required :cleanup-required))
-    (let ((published-p (eq (change-set-state set) ':cleanup-required)))
-      (change-set--with-scopes
-       set (lambda () (change-set--cleanup-or-error set published-p)))))
-  set)
+  (change-set--call-serialized
+   set
+   (lambda ()
+     (change-set--require-state set '(:recovery-required :cleanup-required :aborted :committed))
+     (when (member (change-set-state set) '(:recovery-required :cleanup-required))
+       (change-set--with-scopes
+        set (lambda ()
+              (change-set--require-state set '(:recovery-required :cleanup-required :aborted :committed))
+              (when (member (change-set-state set) '(:recovery-required :cleanup-required))
+                (change-set--cleanup-or-error
+                 set (eq (change-set-state set) ':cleanup-required))))))
+     set)))
 
 (defmethod resource-apply-operations ((resource resource) context
                                     &key base-revision operations)
