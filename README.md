@@ -6,21 +6,21 @@ sets. It depends only on Common Lisp and ASDF. Package: `cl-resources`.
 
 ## Load and test
 
-\```lisp
+```lisp
 (require :asdf)
 (asdf:load-asd (truename "cl-resources.asd"))
 (asdf:load-system "cl-resources")
 (asdf:test-system "cl-resources")
-\```
+```
 
 From the repository root on SBCL:
 
-\```sh
+```sh
 sbcl --noinform --non-interactive \
   --eval '(require :asdf)' \
   --eval '(asdf:load-asd (truename "cl-resources.asd"))' \
   --eval '(asdf:test-system "cl-resources")'
-\```
+```
 
 ## Identity, resolution and observation
 
@@ -58,7 +58,7 @@ Serialize registry mutation externally if registering concurrently.
 
 ## Staged changes
 
-\```lisp
+```lisp
 (let ((set (cl-resources:change-set-stage
             (list (cl-resources:make-resource-change
                    resource :base-revision revision :operations operations))
@@ -67,7 +67,7 @@ Serialize registry mutation externally if registering concurrently.
                          (declare (ignore set context))
                          (publish-observations-atomically observations)))))
   (cl-resources:change-set-commit set))
-\```
+```
 
 `resource-apply-operations(resource context &key base-revision operations)`
 uses the same staged protocol for one resource and returns its new observation.
@@ -137,6 +137,9 @@ A compensation failure signals `change-set-error`, with readers for `set`,
 completed steps are not repeated. The `retry-recovery` restart retries pending
 steps while current backend scopes are held. An interrupted rollback step
 retains its previous phase for retry.
+During cleanup, the transient `:recovering` state rejects reentrant lifecycle
+calls. A nonlocal exit from rollback, discard or finalize leaves a retryable
+pending state. Serialize lifecycle calls for each set at the application boundary.
 
 After publication, finalize failure produces `:cleanup-required` and the same
 recoverable condition. Recovery retries only incomplete finalization. Committed
@@ -200,6 +203,8 @@ identity and observation validation, authority callbacks, operation discovery,
 single and multiple resources, stale staging and commit, lexical scope ordering,
 publication, nonlocal exits, repeated lifecycle calls and a deterministic
 fault/recovery matrix at every batch position. Faults include partial commit,
-partial rollback, discard and post-publication cleanup.
+partial rollback, discard and post-publication cleanup. Additional tests exercise
+interrupted cleanup, rejected scope callbacks, malformed prepared handles and
+exact byte restoration of real files after partial installation.
 
 ISC license, copyright 2026 Lambda Symbolics.

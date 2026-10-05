@@ -40,10 +40,12 @@
   (if (callback-resource--capabilities resource)
       (funcall (callback-resource--capabilities resource) resource context)
       (append (when (callback-resource--observe resource) (list ':observe))
+              (when (callback-resource--stage resource) (list ':stage))
               (when (and (callback-resource--observe resource)
                          (callback-resource--stage resource)
                          (callback-resource--transaction resource))
-                (list ':stage ':apply-operations ':transaction)))))
+                (list ':apply-operations))
+              (when (callback-resource--transaction resource) (list ':transaction)))))
 
 (defmethod resource-observe ((resource callback-resource) context)
   "Observe external state through the callback boundary."

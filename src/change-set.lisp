@@ -176,32 +176,38 @@ does not invalidate published state; recovery retries cleanup, never rollback.")
       (acquire resources))))
 
 (defun change-set--cleanup (set published-p)
-  "Retry pending cleanup. Return a list of errors and update the lifecycle state."
+  "Retry pending cleanup, retaining a retryable state even on nonlocal exits."
   (let ((failures nil)
-        (context (change-set--context set)))
-    (dolist (entry (if published-p
-                      (change-set--entries set)
-                      (reverse (change-set--entries set))))
-      (handler-case
-          (let ((change (change-entry-change entry)))
-            (if published-p
-                (unless (eq (change-entry-phase entry) ':finalized)
-                  (prepared-change-finalize change context)
-                  (setf (change-entry-phase entry) ':finalized))
-                (progn
-                  (when (member (change-entry-phase entry) '(:started :committed))
-                    (prepared-change-rollback change context)
-                    (setf (change-entry-phase entry) ':rolled-back))
-                  (unless (eq (change-entry-phase entry) ':discarded)
-                    (prepared-change-discard change context)
-                    (setf (change-entry-phase entry) ':discarded)))))
-        (error (condition)
-          (push condition failures))))
-    (setf (change-set-state set)
-          (if failures
-              (if published-p ':cleanup-required ':recovery-required)
-              (if published-p ':committed ':aborted)))
-    (nreverse failures)))
+        (completed-p nil)
+        (context (change-set--context set))
+        (pending-state (if published-p ':cleanup-required ':recovery-required)))
+    (setf (change-set-state set) ':recovering)
+    (unwind-protect
+         (progn
+           (dolist (entry (if published-p
+                             (change-set--entries set)
+                             (reverse (change-set--entries set))))
+             (handler-case
+                 (let ((change (change-entry-change entry)))
+                   (if published-p
+                       (unless (eq (change-entry-phase entry) ':finalized)
+                         (prepared-change-finalize change context)
+                         (setf (change-entry-phase entry) ':finalized))
+                       (progn
+                         (when (member (change-entry-phase entry) '(:started :committed))
+                           (prepared-change-rollback change context)
+                           (setf (change-entry-phase entry) ':rolled-back))
+                         (unless (eq (change-entry-phase entry) ':discarded)
+                           (prepared-change-discard change context)
+                           (setf (change-entry-phase entry) ':discarded)))))
+               (error (condition)
+                 (push condition failures))))
+           (setf (change-set-state set)
+                 (if failures pending-state (if published-p ':committed ':aborted))
+                 completed-p t)
+           (nreverse failures))
+      (unless completed-p
+        (setf (change-set-state set) pending-state)))))
 
 (defun change-set--cleanup-or-error (set published-p &optional cause)
   "Perform cleanup, exposing retained recovery state if a backend step fails."
