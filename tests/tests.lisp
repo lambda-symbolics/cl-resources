@@ -657,5 +657,6 @@
     (test-adapter-contracts)
     (test-real-file-rollback)
     (test-operation-discovery)
+    (test-caller-scoped-revision-guard)
     (format t "~&cl-resources: ~D checks passed.~%" *test-checks*)
     *test-checks*))

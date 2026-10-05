@@ -13,7 +13,8 @@
 (asdf:defsystem "cl-resources/tests"
   :depends-on ("cl-resources")
   :serial t
-  :components ((:file "tests/tests"))
+  :components ((:file "tests/tests")
+               (:file "tests/revision-guard"))
   :perform (asdf:test-op (operation system)
              (declare (ignore operation system))
              (uiop:symbol-call :cl-resources :run-tests)))

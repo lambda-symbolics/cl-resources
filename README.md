@@ -50,6 +50,14 @@ existence in content or metadata. Reads may be bounded views, but the revision
 must guard all state relevant to the requested mutation, not just visible text.
 The library checks observation identity and revision shape.
 
+`resource-check-revision(resource context expected-revision)` is the mutation
+revision guard. Its default method observes the resource and compares literal
+revisions with `string=`. Adapters may specialize it to resolve caller-scoped
+opaque handles, authorize their use, validate current backend state and return
+the current observation. Both staging and prepared-change validation invoke
+this guard within backend scopes. Retain the submitted handle as the prepared
+change's base revision; the library does not retain or resolve handles itself.
+
 Implement `resource-capabilities(resource context)` to return supported
 operation identifiers. The base resource reports no operations. Discovery is
 informational; authorize every operation independently. The application owns

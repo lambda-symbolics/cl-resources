@@ -152,16 +152,20 @@ normalization, network authority interpretation or authorization is performed."
              :reason "observe must return an observation of the same identity"))
     observation))
 
-(defun resource-check-revision (resource context expected-revision)
-  "Observe RESOURCE, reject a stale EXPECTED-REVISION, and return the observation.
-Call within the backend transaction scope when checking before mutation."
-  (resource--check-revision-value expected-revision (resource-uri resource))
-  (let* ((observation (resource-observe resource context))
-         (actual (resource-observation-revision observation)))
-    (unless (string= expected-revision actual)
-      (error 'resource-revision-stale :uri (resource-uri resource)
-             :expected-revision expected-revision :actual-revision actual))
-    observation))
+(defgeneric resource-check-revision (resource context expected-revision)
+  (:documentation
+   "Validate EXPECTED-REVISION and return the current observation.
+Call within the backend transaction scope before mutation. Adapters may
+specialize this guard to resolve caller-scoped opaque revision handles.")
+  (:method ((resource resource) context expected-revision)
+    "Compare a literal observation revision for an ordinary adapter."
+    (resource--check-revision-value expected-revision (resource-uri resource))
+    (let* ((observation (resource-observe resource context))
+           (actual (resource-observation-revision observation)))
+      (unless (string= expected-revision actual)
+        (error 'resource-revision-stale :uri (resource-uri resource)
+               :expected-revision expected-revision :actual-revision actual))
+      observation)))
 
 (defgeneric resource-apply-operations (resource context &key base-revision operations)
   (:documentation "Apply a revision-gated single-resource change and return an observation."))
