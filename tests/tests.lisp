@@ -247,7 +247,22 @@
   (let ((resource (make-instance 'callback-resource :uri "x:a")))
     (test-check (null (resource-capabilities resource nil)))
     (test-condition 'resource-operation-unsupported (lambda () (resource-observe resource nil))))
-  (test-condition 'type-error (lambda () (make-instance 'callback-resource :uri "x:a" :observe 3))))
+  (test-condition 'type-error (lambda () (make-instance 'callback-resource :uri "x:a" :observe 3)))
+  (dolist (entry (list (list ':resolve
+                             (lambda ()
+                               (make-instance 'callback-resolver :scheme "x" :resolve 3)))
+                       (list ':resource
+                             (lambda ()
+                               (make-instance 'callback-prepared-change
+                                              :resource      3
+                                              :base-revision "1"
+                                              :commit        #'identity
+                                              :rollback      #'identity
+                                              :discard       #'identity
+                                              :finalize      #'identity)))))
+    (let ((condition (test-condition 'callback-argument-invalid (second entry))))
+      (test-check (eq (first entry) (callback-argument-invalid-argument condition))
+                  "callback-argument-invalid names its argument"))))
 
 (defun test-success-and-lifecycle ()
   "Require staged isolation, lock ordering, atomic publication and lifecycle guards."

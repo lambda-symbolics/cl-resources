@@ -27,4 +27,5 @@
    #:prepared-change-discard #:prepared-change-finalize
    #:change-set #:change-set-state #:change-set-observations
    #:change-set-stage #:change-set-commit #:change-set-abort #:change-set-recover
-   #:callback-resource #:callback-resolver #:callback-prepared-change))
+   #:callback-resource #:callback-resolver #:callback-prepared-change
+   #:callback-argument-invalid #:callback-argument-invalid-argument))

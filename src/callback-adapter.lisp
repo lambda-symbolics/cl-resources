@@ -1,5 +1,18 @@
 (in-package #:cl-resources)
 
+;;;; -- Conditions --
+
+(define-condition callback-argument-invalid (type-error)
+  ((argument :initarg :argument :reader callback-argument-invalid-argument
+             :documentation "The initialization argument with the wrong type."))
+  (:documentation "A callback adapter received an initialization argument of the wrong type.")
+  (:report (lambda (condition stream)
+             (format stream "Callback adapter argument ~S must be of type ~S, not ~S."
+                     (callback-argument-invalid-argument condition)
+                     (type-error-expected-type condition)
+                     (type-error-datum condition)))))
+
+
 ;;;; -- Optional external adapter boundaries --
 
 (defclass callback-resolver (resource-resolver)
@@ -10,7 +23,10 @@
 (defmethod initialize-instance :after ((resolver callback-resolver) &key)
   "Require an explicit resolver callback."
   (unless (functionp (callback-resolver--resolve resolver))
-    (error 'type-error :datum (callback-resolver--resolve resolver) :expected-type 'function)))
+    (error 'callback-argument-invalid
+           :argument      ':resolve
+           :datum         (callback-resolver--resolve resolver)
+           :expected-type 'function)))
 
 (defmethod resource-resolver-resolve ((resolver callback-resolver) identifier context)
   "Delegate resolution with explicit authority context."
@@ -83,7 +99,10 @@
 (defmethod initialize-instance :after ((change callback-prepared-change) &key)
   "Require every mutation and cleanup callback, with optional payload validation."
   (unless (typep (prepared-change-resource change) 'resource)
-    (error 'type-error :datum (prepared-change-resource change) :expected-type 'resource))
+    (error 'callback-argument-invalid
+           :argument      ':resource
+           :datum         (prepared-change-resource change)
+           :expected-type 'resource))
   (resource--check-revision-value (prepared-change-base-revision change)
                                 (resource-uri (prepared-change-resource change)))
   (dolist (callback (list (callback-change--commit change)

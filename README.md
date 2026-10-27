@@ -251,6 +251,11 @@ All resource conditions inherit `resource-error`, with `resource-error-uri`.
 - `change-set-error`: `:set`, optional `:cause`, `:failures`.
 - `change-set-state-error`: `:state`.
 
+The callback bridge signals `callback-argument-invalid`, a `type-error` with
+`:argument`, `:datum` and `:expected-type`, when `callback-resolver` gets a
+`:resolve` that is not a function or `callback-prepared-change` gets a
+`:resource` that is not a resource.
+
 Specialized condition readers use the condition name as their prefix.
 The generic base guard compares string revisions exactly with `string=`.
 Adapters can report an absent current state with `:actual-revision nil` when
