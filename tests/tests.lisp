@@ -3,7 +3,9 @@
 ;;;; -- Dependency-free behavioral test harness --
 
 (defvar *test-checks* 0)
+
 (defvar *test-events* nil)
+
 (defvar *test-scopes* nil)
 
 (define-condition test-injected-failure (error)
@@ -55,9 +57,10 @@
            (lambda (resource context)
              (test-backend--authorize backend context)
              (test-backend--step backend ':observe)
-             (make-instance 'resource-observation :uri (resource-uri resource)
+             (make-instance 'resource-observation
+                            :uri      (resource-uri resource)
                             :revision (test-backend--revision backend)
-                            :content (test-backend-value backend)
+                            :content  (test-backend-value backend)
                             :metadata (list :exists t)))
            :transaction
            (lambda (resource context thunk)
@@ -74,7 +77,7 @@
              (test-backend--step backend ':stage)
              (test-check (member (resource-uri resource) *test-scopes* :test #'equal)
                          "stage is locked")
-             (let ((old-value (test-backend-value backend))
+             (let ((old-value    (test-backend-value backend))
                    (old-revision (test-backend-revision backend)))
                (make-instance
                 'callback-prepared-change :resource resource :base-revision base-revision
@@ -119,7 +122,7 @@
   "Create a request at the current fixture state."
   (make-resource-change (test-backend-resource backend)
                         :base-revision (test-backend--revision backend)
-                        :operations (list value)))
+                        :operations    (list value)))
 
 (defun test-stage (backends &key publisher)
   "Stage fixture requests in caller order."
@@ -150,7 +153,8 @@
     (test-condition 'resource-uri-malformed (lambda () (resource-uri-parse uri))))
   (let* ((registry (make-resource-registry))
          (contexts nil)
-         (resolver (make-instance 'callback-resolver :scheme "x"
+         (resolver (make-instance 'callback-resolver
+                                  :scheme  "x"
                                   :resolve (lambda (resolver identifier context)
                                              (push context contexts)
                                              (make-instance 'resource :uri
@@ -163,7 +167,7 @@
       (test-check (eq installed resolver))
       (test-check (null previous)))
     (test-check (equal (resource-registry-schemes registry) '("x")))
-    (let ((first (resource-registry-resolve registry "x:a" ':first))
+    (let ((first  (resource-registry-resolve registry "x:a" ':first))
           (second (resource-registry-resolve registry "x:a" ':second)))
       (test-check (equal (resource-uri first) (resource-uri second)))
       (test-check (equal contexts '(:second :first))))
@@ -185,7 +189,8 @@
                                             :revision 1 :content nil)))
   (let ((registry (make-resource-registry)))
     (resource-registry-register registry
-                                (make-instance 'callback-resolver :scheme "x"
+                                (make-instance 'callback-resolver
+                                               :scheme  "x"
                                                :resolve (lambda (&rest arguments)
                                                           (declare (ignore arguments)) nil)))
     (test-condition 'resource-protocol-error
@@ -193,7 +198,7 @@
 
 (defun test-observation-and-authority ()
   "Exercise operation discovery, read validation, stale guards and denial."
-  (let* ((backend (test-backend-make "one"))
+  (let* ((backend  (test-backend-make "one"))
          (resource (test-backend-resource backend)))
     (test-check (equal (resource-capabilities resource ':allowed)
                        '(:observe :stage :apply-operations :transaction)))
@@ -227,11 +232,13 @@
                     (lambda () (resource-resolver-resolve
                                 (make-instance 'resource-resolver :scheme "x") "a" nil))))
   (dolist (result '(nil 3))
-    (let ((resource (make-instance 'callback-resource :uri "x:a"
+    (let ((resource (make-instance 'callback-resource
+                                   :uri     "x:a"
                                    :observe (lambda (&rest arguments)
                                               (declare (ignore arguments)) result))))
       (test-condition 'resource-protocol-error (lambda () (resource-observe resource nil)))))
-  (let ((resource (make-instance 'callback-resource :uri "x:a"
+  (let ((resource (make-instance 'callback-resource
+                                 :uri     "x:a"
                                  :observe (lambda (&rest arguments)
                                             (declare (ignore arguments))
                                             (make-instance 'resource-observation :uri "x:b"
@@ -244,17 +251,17 @@
 
 (defun test-success-and-lifecycle ()
   "Require staged isolation, lock ordering, atomic publication and lifecycle guards."
-  (let* ((backends (mapcar #'test-backend-make '("z" "a" "m")))
+  (let* ((backends     (mapcar #'test-backend-make '("z" "a" "m")))
          (publications 0)
-         (set (test-stage backends
-                          :publisher (lambda (set observations context)
-                                       (test-check (eq (change-set-state set) ':committing))
-                                       (test-check (eq context ':allowed))
-                                       (test-check (= (length observations) 3))
-                                       (test-check (equal *test-scopes* '("test:a" "test:m" "test:z")))
-                                       (test-check (every (lambda (backend)
-                                                            (= (test-backend-value backend) 10)) backends))
-                                       (incf publications)))))
+         (set          (test-stage backends
+                                   :publisher (lambda (set observations context)
+                                                (test-check (eq (change-set-state set) ':committing))
+                                                (test-check (eq context ':allowed))
+                                                (test-check (= (length observations) 3))
+                                                (test-check (equal *test-scopes* '("test:a" "test:m" "test:z")))
+                                                (test-check (every (lambda (backend)
+                                                                     (= (test-backend-value backend) 10)) backends))
+                                                (incf publications)))))
     (test-original-state backends)
     (test-check (eq (change-set-state set) ':staged))
     (test-check (null (change-set-observations set)))
@@ -272,7 +279,7 @@
     (change-set-recover set)
     (test-check (= publications 1)))
   (let* ((backend (test-backend-make "abort"))
-         (set (test-stage (list backend))))
+         (set     (test-stage (list backend))))
     (change-set-abort set)
     (change-set-abort set)
     (test-check (eq (change-set-state set) ':aborted))
@@ -288,7 +295,7 @@
     (change-set-commit set)
     (test-check (eq (change-set-state set) ':committed)))
   (let* ((backend (test-backend-make "stale"))
-         (set (test-stage (list backend))))
+         (set     (test-stage (list backend))))
     (incf (test-backend-revision backend))
     (setf (test-backend-value backend) 77)
     (test-condition 'resource-revision-stale (lambda () (change-set-commit set)))
@@ -301,9 +308,9 @@
   (dolist (step '(:stage :validate :commit-before :commit-after :observe))
     (dotimes (position 3)
       (let* ((*test-events* nil)
-             (backends (mapcar #'test-backend-make '("a" "b" "c")))
-             (failing (nth position backends))
-             (publications 0))
+             (backends      (mapcar #'test-backend-make '("a" "b" "c")))
+             (failing       (nth position backends))
+             (publications  0))
         (if (eq step ':stage)
             (progn
               (test-fail-at failing step)
@@ -331,7 +338,7 @@
         (test-check (null *test-scopes*)))))
   ;; A failing read after all commits must roll back every installed resource.
   (let* ((backends (mapcar #'test-backend-make '("a" "b")))
-         (set (test-stage backends)))
+         (set      (test-stage backends)))
     (let ((original (callback-change--commit
                      (change-entry-change (second (change-set--entries set))))))
       (setf (slot-value (change-entry-change (second (change-set--entries set))) 'commit)
@@ -343,9 +350,9 @@
     (test-check (eq (change-set-state set) ':aborted)))
   ;; Publication failure is compensated before any undo data is finalized.
   (let* ((backends (mapcar #'test-backend-make '("a" "b")))
-         (set (test-stage backends :publisher (lambda (&rest arguments)
-                                               (declare (ignore arguments))
-                                               (error 'test-injected-failure :step ':publish)))))
+         (set      (test-stage backends :publisher (lambda (&rest arguments)
+                                                    (declare (ignore arguments))
+                                                    (error 'test-injected-failure :step ':publish)))))
     (test-condition 'test-injected-failure (lambda () (change-set-commit set)))
     (test-original-state backends)
     (test-check (null (change-set-observations set)))
@@ -356,9 +363,9 @@
   (dolist (step '(:rollback-before :rollback-after :discard))
     (dotimes (position 3)
       (let* ((*test-events* nil)
-             (backends (mapcar #'test-backend-make '("a" "b" "c")))
-             (failing (nth position backends))
-             (set (test-stage backends)))
+             (backends      (mapcar #'test-backend-make '("a" "b" "c")))
+             (failing       (nth position backends))
+             (set           (test-stage backends)))
         (test-fail-at (third backends) ':commit-after)
         (test-fail-at failing step 2)
         (let ((condition (test-condition 'change-set-error (lambda () (change-set-commit set)))))
@@ -377,11 +384,11 @@
                          (if (and (eq backend failing) (eq step ':discard)) 3 1)))))))
   (dotimes (position 3)
     (let* ((*test-events* nil)
-           (backends (mapcar #'test-backend-make '("a" "b" "c")))
-           (publications 0)
-           (set (test-stage backends :publisher (lambda (&rest arguments)
-                                                 (declare (ignore arguments))
-                                                 (incf publications)))))
+           (backends      (mapcar #'test-backend-make '("a" "b" "c")))
+           (publications  0)
+           (set           (test-stage backends :publisher (lambda (&rest arguments)
+                                                           (declare (ignore arguments))
+                                                           (incf publications)))))
       (test-fail-at (nth position backends) ':finalize 2)
       (test-condition 'change-set-error (lambda () (change-set-commit set)))
       (test-check (eq (change-set-state set) ':cleanup-required))
@@ -397,34 +404,34 @@
                        (if (eq backend (nth position backends)) 3 1))))))
   ;; Failed discard of a staged set retains its payload for explicit recovery.
   (let* ((backend (test-backend-make "discard"))
-         (set (test-stage (list backend))))
+         (set     (test-stage (list backend))))
     (test-fail-at backend ':discard)
     (test-condition 'change-set-error (lambda () (change-set-abort set)))
     (change-set-recover set)
     (test-check (eq (change-set-state set) ':aborted)))
   ;; A cleanup condition exposes a set even when stage never returned one.
-  (let* ((first (test-backend-make "first"))
+  (let* ((first  (test-backend-make "first"))
          (second (test-backend-make "second")))
     (test-fail-at second ':stage)
     (test-fail-at first ':discard)
     (let* ((condition (test-condition 'change-set-error
                                       (lambda () (test-stage (list first second)))))
-           (set (change-set-error-set condition)))
+           (set       (change-set-error-set condition)))
       (change-set-recover set)
       (test-check (eq (change-set-state set) ':aborted)))))
 
 (defun test-nonlocal-exits-and-restarts ()
   "Require unwind cleanup for callback throws and a working retry restart."
   (let* ((backends (mapcar #'test-backend-make '("a" "b")))
-         (set (test-stage backends :publisher (lambda (&rest arguments)
-                                               (declare (ignore arguments))
-                                               (throw 'test-exit ':escaped)))))
+         (set      (test-stage backends :publisher (lambda (&rest arguments)
+                                                    (declare (ignore arguments))
+                                                    (throw 'test-exit ':escaped)))))
     (test-check (eq (catch 'test-exit (change-set-commit set)) ':escaped))
     (test-original-state backends)
     (test-check (eq (change-set-state set) ':aborted))
     (test-check (null *test-scopes*)))
   (let* ((backend (test-backend-make "restart"))
-         (set (test-stage (list backend))))
+         (set     (test-stage (list backend))))
     (test-fail-at backend ':finalize)
     (handler-bind ((change-set-error
                      (lambda (condition)
@@ -434,15 +441,16 @@
     (test-check (eq (change-set-state set) ':committed))
     (test-check (= (test-backend-value backend) 10))))
 
+
 ;;;; -- Interrupted recovery and external storage --
 
 (defun test-interrupted-cleanup ()
   "Require retryable lifecycle state even when cleanup exits nonlocally."
   (dolist (step '(rollback discard finalize))
-    (let* ((backend (test-backend-make "interrupted"))
-           (set (test-stage (list backend)))
-           (change (change-entry-change (first (change-set--entries set))))
-           (original (slot-value change step))
+    (let* ((backend     (test-backend-make "interrupted"))
+           (set         (test-stage (list backend)))
+           (change      (change-entry-change (first (change-set--entries set))))
+           (original    (slot-value change step))
            (interrupt-p t))
       (setf (slot-value change step)
             (lambda (change context)
@@ -478,16 +486,20 @@
     (test-check (eq (resource-registry-find registry "x") resolver)))
   (dolist (mode '(:none :twice :deferred))
     (let ((deferred nil)
-          (calls 0))
+          (calls    0))
       (let ((resource
               (make-instance
-               'callback-resource :uri "x:scope"
+               'callback-resource
+               :uri         "x:scope"
                :transaction (lambda (resource context thunk)
                               (declare (ignore resource context))
                               (case mode
-                                (:none nil)
-                                (:twice (funcall thunk) (funcall thunk))
-                                (:deferred (setf deferred thunk)))))))
+                                (:none
+                                 nil)
+                                (:twice
+                                 (funcall thunk) (funcall thunk))
+                                (:deferred
+                                 (setf deferred thunk)))))))
         (test-condition 'resource-protocol-error
                         (lambda () (resource-call-with-transaction
                                     resource nil (lambda () (incf calls)))))
@@ -496,8 +508,8 @@
           (test-condition 'resource-protocol-error deferred)
           (test-check (zerop calls))))))
   (let* ((*test-events* nil)
-         (backends (mapcar #'test-backend-make '("a" "b" "c")))
-         (requests (mapcar #'test-request backends)))
+         (backends      (mapcar #'test-backend-make '("a" "b" "c")))
+         (requests      (mapcar #'test-request backends)))
     (incf (test-backend-revision (third backends)))
     (test-condition 'resource-revision-stale
                     (lambda () (change-set-stage requests ':allowed)))
@@ -505,9 +517,9 @@
       (test-check (zerop (test-event-count backend ':stage)))))
   (dolist (mode '(:not-a-handle :wrong-base :wrong-resource))
     (let* ((*test-events* nil)
-           (backend (test-backend-make "invalid"))
-           (resource (test-backend-resource backend))
-           (original (callback-resource--stage resource)))
+           (backend       (test-backend-make "invalid"))
+           (resource      (test-backend-resource backend))
+           (original      (callback-resource--stage resource)))
       (setf (slot-value resource 'stage)
             (lambda (resource context &key base-revision operations)
               (if (eq mode ':not-a-handle)
@@ -515,7 +527,8 @@
                   (let ((change (funcall original resource context
                                          :base-revision base-revision :operations operations)))
                     (case mode
-                      (:wrong-base (setf (slot-value change 'base-revision) "other"))
+                      (:wrong-base
+                       (setf (slot-value change 'base-revision) "other"))
                       (:wrong-resource
                        (setf (slot-value change 'resource)
                              (make-instance 'resource :uri "test:other"))))
@@ -526,7 +539,7 @@
         (test-check (= (test-event-count backend ':discard) 1)))))
   ;; Lock acquisition failure leaves a returned staged set available for retry.
   (let* ((backends (mapcar #'test-backend-make '("a" "b")))
-         (set (test-stage backends)))
+         (set      (test-stage backends)))
     (test-fail-at (second backends) ':lock)
     (test-condition 'test-injected-failure (lambda () (change-set-commit set)))
     (test-check (eq (change-set-state set) ':staged))
@@ -551,35 +564,37 @@
 (defun test-file-resource (path name &key fail-after-write)
   "Build a real-file callback adapter with exact byte snapshots and partial-write fault."
   (make-instance
-   'callback-resource :uri (format nil "file:~A" name)
-   :observe (lambda (resource context)
-              (declare (ignore context))
-              (let ((bytes (test-file-read path)))
-                (make-instance 'resource-observation :uri (resource-uri resource)
-                               :revision (format nil "bytes-~{~2,'0X~}" (coerce bytes 'list))
-                               :content bytes)))
+   'callback-resource
+   :uri         (format nil "file:~A" name)
+   :observe     (lambda (resource context)
+                  (declare (ignore context))
+                  (let ((bytes (test-file-read path)))
+                    (make-instance 'resource-observation
+                                   :uri      (resource-uri resource)
+                                   :revision (format nil "bytes-~{~2,'0X~}" (coerce bytes 'list))
+                                   :content  bytes)))
    :transaction (lambda (resource context thunk)
                   ;; The fixture is deliberately serial; production adapters supply a lock.
                   (declare (ignore resource context))
                   (funcall thunk))
-   :stage (lambda (resource context &key base-revision operations)
-            (declare (ignore context))
-            (let ((old-bytes (test-file-read path))
-                  (new-bytes (copy-seq (first operations))))
-              (make-instance
-               'callback-prepared-change :resource resource :base-revision base-revision
-               :commit (lambda (change context)
-                         (declare (ignore change context))
-                         (test-file-write path new-bytes)
-                         (when fail-after-write
-                           (error 'test-injected-failure :step ':file-write)))
-               :rollback (lambda (change context)
-                           (declare (ignore change context))
-                           (test-file-write path old-bytes))
-               :discard (lambda (change context)
-                          (declare (ignore change context)) t)
-               :finalize (lambda (change context)
-                           (declare (ignore change context)) t))))))
+   :stage       (lambda (resource context &key base-revision operations)
+                  (declare (ignore context))
+                  (let ((old-bytes (test-file-read path))
+                        (new-bytes (copy-seq (first operations))))
+                    (make-instance
+                     'callback-prepared-change :resource resource :base-revision base-revision
+                     :commit   (lambda (change context)
+                                 (declare (ignore change context))
+                                 (test-file-write path new-bytes)
+                                 (when fail-after-write
+                                   (error 'test-injected-failure :step ':file-write)))
+                     :rollback (lambda (change context)
+                                 (declare (ignore change context))
+                                 (test-file-write path old-bytes))
+                     :discard  (lambda (change context)
+                                 (declare (ignore change context)) t)
+                     :finalize (lambda (change context)
+                                 (declare (ignore change context)) t))))))
 
 (defun test-real-file-rollback ()
   "Verify exact byte restoration of two real files after partial installation."
@@ -587,23 +602,23 @@
     (close first-stream)
     (uiop:with-temporary-file (:pathname second-path :stream second-stream)
       (close second-stream)
-      (let ((first-bytes (make-array 6 :element-type '(unsigned-byte 8)
-                                     :initial-contents '(0 255 13 10 0 128)))
-            (second-bytes (make-array 4 :element-type '(unsigned-byte 8)
+      (let ((first-bytes  (make-array 6 :element-type   '(unsigned-byte 8)
+                                      :initial-contents '(0 255 13 10 0 128)))
+            (second-bytes (make-array 4 :element-type   '(unsigned-byte 8)
                                       :initial-contents '(10 10 13 255)))
-            (new-bytes (make-array 3 :element-type '(unsigned-byte 8)
-                                   :initial-contents '(1 2 3))))
+            (new-bytes    (make-array 3 :element-type   '(unsigned-byte 8)
+                                      :initial-contents '(1 2 3))))
         (test-file-write first-path first-bytes)
         (test-file-write second-path second-bytes)
-        (let* ((first (test-file-resource first-path "first"))
-               (second (test-file-resource second-path "second" :fail-after-write t))
+        (let* ((first    (test-file-resource first-path "first"))
+               (second   (test-file-resource second-path "second" :fail-after-write t))
                (requests (mapcar (lambda (resource)
                                    (make-resource-change
                                     resource :base-revision
                                     (resource-observation-revision (resource-observe resource nil))
                                     :operations (list new-bytes)))
                                  (list first second)))
-               (set (change-set-stage requests nil)))
+               (set      (change-set-stage requests nil)))
           (test-check (equalp first-bytes (test-file-read first-path)))
           (test-check (equalp second-bytes (test-file-read second-path)))
           (test-condition 'test-injected-failure (lambda () (change-set-commit set)))
@@ -621,15 +636,16 @@
 (defun test-operation-discovery ()
   "Discover every callback subset and honor explicit context-sensitive discovery."
   (dotimes (mask 8)
-    (let* ((callback (lambda (&rest arguments) (declare (ignore arguments)) nil))
-           (observe-p (logbitp 0 mask))
-           (stage-p (logbitp 1 mask))
+    (let* ((callback      (lambda (&rest arguments) (declare (ignore arguments)) nil))
+           (observe-p     (logbitp 0 mask))
+           (stage-p       (logbitp 1 mask))
            (transaction-p (logbitp 2 mask))
-           (resource (make-instance 'callback-resource :uri "x:callbacks"
-                                    :observe (when observe-p callback)
-                                    :stage (when stage-p callback)
-                                    :transaction (when transaction-p callback)))
-           (capabilities (resource-capabilities resource nil)))
+           (resource      (make-instance 'callback-resource
+                                         :uri         "x:callbacks"
+                                         :observe     (when observe-p callback)
+                                         :stage       (when stage-p callback)
+                                         :transaction (when transaction-p callback)))
+           (capabilities  (resource-capabilities resource nil)))
       (test-check (eq (not (null (member ':observe capabilities))) observe-p))
       (test-check (eq (not (null (member ':stage capabilities))) stage-p))
       (test-check (eq (not (null (member ':transaction capabilities))) transaction-p))

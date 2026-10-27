@@ -17,22 +17,22 @@
 (defun test-concurrent-empty-commits ()
   "Simultaneous callers publish an empty set once, without any backend lock."
   (dotimes (iteration 100)
-    (let* ((start (bordeaux-threads:make-semaphore))
-           (ready (bordeaux-threads:make-semaphore))
-           (count-lock (bordeaux-threads:make-lock))
+    (let* ((start        (bordeaux-threads:make-semaphore))
+           (ready        (bordeaux-threads:make-semaphore))
+           (count-lock   (bordeaux-threads:make-lock))
            (publications 0)
-           (set (change-set-stage
-                 nil nil :publisher
-                 (lambda (set observations context)
-                   (declare (ignore set observations context))
-                   (bordeaux-threads:with-lock-held (count-lock)
-                     (incf publications)))))
-           (threads (loop repeat 8 collect
-                          (test-thread
-                           (lambda ()
-                             (bordeaux-threads:signal-semaphore ready)
-                             (test-wait start)
-                             (change-set-commit set))))))
+           (set          (change-set-stage
+                          nil nil :publisher
+                          (lambda (set observations context)
+                            (declare (ignore set observations context))
+                            (bordeaux-threads:with-lock-held (count-lock)
+                              (incf publications)))))
+           (threads      (loop repeat 8 collect
+                               (test-thread
+                                (lambda ()
+                                  (bordeaux-threads:signal-semaphore ready)
+                                  (test-wait start)
+                                  (change-set-commit set))))))
       (unwind-protect
            (progn
              (dotimes (i 8) (test-wait ready))
@@ -47,25 +47,25 @@
 
 (defun test-concurrent-publish-abort ()
   "A queued abort cannot compensate a publication with retained undo data."
-  (let* ((backend (test-backend-make "queued-abort"))
-         (resource (test-backend-resource backend))
-         (scope (callback-resource--transaction resource))
-         (backend-lock (bordeaux-threads:make-lock))
-         (entered (bordeaux-threads:make-semaphore))
-         (release (bordeaux-threads:make-semaphore))
-         (abort-started (bordeaux-threads:make-semaphore))
+  (let* ((backend        (test-backend-make "queued-abort"))
+         (resource       (test-backend-resource backend))
+         (scope          (callback-resource--transaction resource))
+         (backend-lock   (bordeaux-threads:make-lock))
+         (entered        (bordeaux-threads:make-semaphore))
+         (release        (bordeaux-threads:make-semaphore))
+         (abort-started  (bordeaux-threads:make-semaphore))
          (abort-at-scope (bordeaux-threads:make-semaphore))
-         (gate-p nil)
-         (publications 0)
-         (set nil))
+         (gate-p         nil)
+         (publications   0)
+         (set            nil))
     (setf (slot-value resource 'transaction)
           (lambda (resource context thunk)
             (when (and gate-p (string= (bordeaux-threads:thread-name
-                                       (bordeaux-threads:current-thread)) "abort"))
+                                        (bordeaux-threads:current-thread)) "abort"))
               (bordeaux-threads:signal-semaphore abort-at-scope))
             (bordeaux-threads:with-lock-held (backend-lock)
               (when (and gate-p (string= (bordeaux-threads:thread-name
-                                         (bordeaux-threads:current-thread)) "commit"))
+                                          (bordeaux-threads:current-thread)) "commit"))
                 (bordeaux-threads:signal-semaphore entered)
                 (test-wait release))
               (funcall scope resource context thunk))))
@@ -76,7 +76,7 @@
     (test-fail-at backend ':finalize)
     (setf gate-p t)
     (let ((commit (test-thread (lambda () (change-set-commit set)) :name "commit"))
-          (abort nil))
+          (abort  nil))
       (unwind-protect
            (progn
              (test-wait entered)

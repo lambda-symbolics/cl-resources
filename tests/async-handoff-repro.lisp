@@ -8,14 +8,14 @@
 Temporarily gate the internal entry constructor; run this diagnostic alone.
 The fixture allocates no external assets. DEFER-P models application-owned SBCL
 interruption deferral through retaining the returned set."
-  (let* ((backend (test-backend-make "async-handoff"))
-         (ready (bordeaux-threads:make-semaphore))
-         (release (bordeaux-threads:make-semaphore))
-         (original (symbol-function 'change-entry--make))
-         (outcome nil)
-         (discards nil)
+  (let* ((backend    (test-backend-make "async-handoff"))
+         (ready      (bordeaux-threads:make-semaphore))
+         (release    (bordeaux-threads:make-semaphore))
+         (original   (symbol-function 'change-entry--make))
+         (outcome    nil)
+         (discards   nil)
          (retained-p nil)
-         (thread nil))
+         (thread     nil))
     (unwind-protect
          (progn
            (setf (symbol-function 'change-entry--make)
@@ -54,7 +54,7 @@ interruption deferral through retaining the returned set."
   "Report the unprotected handoff and verify application-owned cancellation deferral.
 Load cl-resources/tests and this file, then call this function by itself."
   (let ((unprotected (test-stage-handoff-reproduce))
-        (protected (test-stage-handoff-reproduce :defer-p t)))
+        (protected   (test-stage-handoff-reproduce :defer-p t)))
     (test-check (eq (getf protected :outcome) ':cancelled))
     (test-check (getf protected :retained-set)
                 "application captures the set before deferred cancellation")

@@ -60,7 +60,7 @@
       (call-next-method)))
 
 (defmethod resource-stage-operations ((resource callback-resource) context
-                                     &key base-revision operations)
+                                      &key base-revision operations)
   "Delegate preparation of independent external payload and undo state."
   (if (callback-resource--stage resource)
       (funcall (callback-resource--stage resource) resource context

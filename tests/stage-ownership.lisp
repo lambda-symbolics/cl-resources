@@ -2,11 +2,11 @@
 
 (defun test-stage-ownership-fixture (mode)
   "Return a backend with unwind-safe scope faults and counted cleanup interruption."
-  (let* ((backend (test-backend-make "stage-owner"))
-         (resource (test-backend-resource backend))
-         (scope (callback-resource--transaction resource))
-         (stage (callback-resource--stage resource))
-         (calls 0)
+  (let* ((backend     (test-backend-make "stage-owner"))
+         (resource    (test-backend-resource backend))
+         (scope       (callback-resource--transaction resource))
+         (stage       (callback-resource--stage resource))
+         (calls       0)
          (interrupt-p t))
     (setf (slot-value resource 'transaction)
           (lambda (resource context thunk)
@@ -25,8 +25,8 @@
                       (error 'test-injected-failure :step ':scope-return)))))))
     (setf (slot-value resource 'stage)
           (lambda (resource context &key base-revision operations)
-            (let* ((change (funcall stage resource context :base-revision base-revision
-                                                          :operations operations))
+            (let* ((change  (funcall stage resource context :base-revision base-revision
+                                                           :operations     operations))
                    (discard (callback-change--discard change)))
               (setf (slot-value change 'discard)
                     (lambda (change context)
@@ -45,7 +45,7 @@
   "Protect handle ownership through the complete scope invocation and its cleanup."
   (dolist (mode '(:before :after :throw-before :throw-after))
     (let* ((*test-events* nil)
-           (backend (test-stage-ownership-fixture mode)))
+           (backend       (test-stage-ownership-fixture mode)))
       (if (member mode '(:throw-before :throw-after))
           (test-check (eq (catch 'stage-exit (test-stage (list backend))) ':scope-exit))
           (test-condition 'test-injected-failure (lambda () (test-stage (list backend)))))
@@ -56,11 +56,11 @@
       (test-check (zerop (test-backend-value backend)))))
   (dolist (mode '(:discard-throw :discard-error :reacquire-error :reacquire-throw))
     (let* ((*test-events* nil)
-           (backend (test-stage-ownership-fixture mode))
-           (condition (test-condition
-                       'change-set-error
-                       (lambda () (catch 'stage-exit (test-stage (list backend))))))
-           (set (change-set-error-set condition)))
+           (backend       (test-stage-ownership-fixture mode))
+           (condition     (test-condition
+                           'change-set-error
+                           (lambda () (catch 'stage-exit (test-stage (list backend))))))
+           (set           (change-set-error-set condition)))
       (test-check (eq (change-set-state set) ':recovery-required))
       (test-check (typep (change-set-error-cause condition) 'test-injected-failure))
       (test-check (consp (change-set-error-failures condition)))
@@ -69,21 +69,21 @@
       (test-check (= (count ':discard *test-events* :key #'second) 1))
       (test-check (zerop (test-backend-value backend)))))
   (let* ((*test-events* nil)
-         (first (test-stage-ownership-fixture ':discard-throw))
-         (second (test-backend-make "second-stage")))
+         (first         (test-stage-ownership-fixture ':discard-throw))
+         (second        (test-backend-make "second-stage")))
     (test-fail-at second ':stage)
     (let* ((condition (test-condition
                        'change-set-error
                        (lambda () (catch 'stage-exit (test-stage (list first second))))))
-           (set (change-set-error-set condition)))
+           (set       (change-set-error-set condition)))
       (test-check (eq (test-failure-step (change-set-error-cause condition)) ':stage))
       (test-check (eq (change-set-state set) ':recovery-required))
       (change-set-recover set)
       (test-check (eq (change-set-state set) ':aborted))
       (test-check (= (count ':discard *test-events* :key #'second) 1))))
   (let* ((*test-events* nil)
-         (backend (test-stage-ownership-fixture ':discard-error))
-         (restarts 0))
+         (backend       (test-stage-ownership-fixture ':discard-error))
+         (restarts      0))
     (test-condition
      'test-injected-failure
      (lambda ()

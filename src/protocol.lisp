@@ -40,11 +40,11 @@
                      (resource-operation-unsupported-operation condition)))))
 
 (define-condition resource-revision-stale (resource-error)
-  ((expected-revision :initarg :expected-revision
-                      :reader resource-revision-stale-expected-revision
+  ((expected-revision :initarg       :expected-revision
+                      :reader        resource-revision-stale-expected-revision
                       :documentation "The caller's base revision.")
-   (actual-revision :initarg :actual-revision
-                    :reader resource-revision-stale-actual-revision
+   (actual-revision :initarg       :actual-revision
+                    :reader        resource-revision-stale-actual-revision
                     :documentation "Current revision, or NIL for absent state."))
   (:documentation "An optimistic revision guard rejected a changed resource.")
   (:report (lambda (condition stream)
@@ -61,6 +61,7 @@
              (format stream "Resource protocol violation for ~S: ~A"
                      (resource-error-uri condition)
                      (resource-protocol-error-reason condition)))))
+
 
 ;;;; -- Identities and observations --
 
@@ -86,7 +87,7 @@ normalization, network authority interpretation or authorization is performed."
     (let ((separator (position #\: uri)))
       (unless separator
         (reject "the URI must contain a scheme separator"))
-      (let ((scheme (subseq uri 0 separator))
+      (let ((scheme     (subseq uri 0 separator))
             (identifier (subseq uri (1+ separator))))
         (unless (resource-uri--valid-scheme-p scheme)
           (reject "the scheme must use lowercase ASCII URI scheme characters"))
@@ -98,7 +99,8 @@ normalization, network authority interpretation or authorization is performed."
 (defun resource--check-revision-value (revision uri)
   "Require a nonempty opaque string revision and return it."
   (unless (and (stringp revision) (plusp (length revision)))
-    (error 'resource-protocol-error :uri uri
+    (error 'resource-protocol-error
+           :uri    uri
            :reason "revision must be a nonempty string"))
   revision)
 
@@ -138,7 +140,8 @@ normalization, network authority interpretation or authorization is performed."
   (:documentation "Return a resource-observation under explicit caller CONTEXT.")
   (:method ((resource resource) context)
     (declare (ignore context))
-    (error 'resource-operation-unsupported :uri (resource-uri resource)
+    (error 'resource-operation-unsupported
+           :uri       (resource-uri resource)
            :operation ':observe)))
 
 (defmethod resource-observe :around ((resource resource) context)
@@ -148,7 +151,8 @@ normalization, network authority interpretation or authorization is performed."
     (unless (and (typep observation 'resource-observation)
                  (string= (resource-uri resource)
                           (resource-observation-uri observation)))
-      (error 'resource-protocol-error :uri (resource-uri resource)
+      (error 'resource-protocol-error
+             :uri    (resource-uri resource)
              :reason "observe must return an observation of the same identity"))
     observation))
 
@@ -161,7 +165,7 @@ specialize this guard to resolve caller-scoped opaque revision handles.")
     "Compare a literal observation revision for an ordinary adapter."
     (resource--check-revision-value expected-revision (resource-uri resource))
     (let* ((observation (resource-observe resource context))
-           (actual (resource-observation-revision observation)))
+           (actual      (resource-observation-revision observation)))
       (unless (string= expected-revision actual)
         (error 'resource-revision-stale :uri (resource-uri resource)
                :expected-revision expected-revision :actual-revision actual))
@@ -169,6 +173,7 @@ specialize this guard to resolve caller-scoped opaque revision handles.")
 
 (defgeneric resource-apply-operations (resource context &key base-revision operations)
   (:documentation "Apply a revision-gated single-resource change and return an observation."))
+
 
 ;;;; -- Resolver registry --
 
@@ -180,7 +185,8 @@ specialize this guard to resolve caller-scoped opaque revision handles.")
 (defmethod initialize-instance :after ((resolver resource-resolver) &key)
   "Validate resolver scheme grammar."
   (unless (resource-uri--valid-scheme-p (resource-resolver-scheme resolver))
-    (error 'resource-uri-malformed :uri (resource-resolver-scheme resolver)
+    (error 'resource-uri-malformed
+           :uri    (resource-resolver-scheme resolver)
            :reason "invalid resolver scheme")))
 
 (defgeneric resource-resolver-resolve (resolver identifier context)
@@ -188,12 +194,12 @@ specialize this guard to resolve caller-scoped opaque revision handles.")
   (:method ((resolver resource-resolver) identifier context)
     (declare (ignore context))
     (error 'resource-operation-unsupported
-           :uri (format nil "~A:~A" (resource-resolver-scheme resolver) identifier)
+           :uri       (format nil "~A:~A" (resource-resolver-scheme resolver) identifier)
            :operation ':resolve)))
 
 (defclass resource-registry ()
-  ((resolvers :initform (make-hash-table :test #'equal)
-              :reader resource-registry--resolvers
+  ((resolvers :initform      (make-hash-table :test #'equal)
+              :reader        resource-registry--resolvers
               :documentation "Per-registry scheme to resolver mapping."))
   (:documentation "An explicit resolver registry without process-global policy."))
 
@@ -204,7 +210,7 @@ specialize this guard to resolve caller-scoped opaque revision handles.")
 (defun resource-registry-register (registry resolver)
   "Install RESOLVER, returning it and the previous resolver as two values."
   (check-type resolver resource-resolver)
-  (let* ((scheme (resource-resolver-scheme resolver))
+  (let* ((scheme   (resource-resolver-scheme resolver))
          (previous (gethash scheme (resource-registry--resolvers registry))))
     (setf (gethash scheme (resource-registry--resolvers registry)) resolver)
     (values resolver previous)))
@@ -234,6 +240,7 @@ specialize this guard to resolve caller-scoped opaque revision handles.")
         (error 'resource-scheme-unknown :uri uri :scheme scheme))
       (let ((resource (resource-resolver-resolve resolver identifier context)))
         (unless (typep resource 'resource)
-          (error 'resource-protocol-error :uri uri
+          (error 'resource-protocol-error
+                 :uri    uri
                  :reason "resolver must return a resource"))
         resource))))

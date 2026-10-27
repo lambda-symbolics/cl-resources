@@ -34,12 +34,13 @@ for distinct identities are acquired in lexical URI order by change sets.
 The default rejects mutation instead of pretending that unlocked writes are safe.")
   (:method ((resource resource) context thunk)
     (declare (ignore context thunk))
-    (error 'resource-operation-unsupported :uri (resource-uri resource)
+    (error 'resource-operation-unsupported
+           :uri       (resource-uri resource)
            :operation ':transaction)))
 
 (defmethod resource-call-with-transaction :around ((resource resource) context thunk)
   "Require exactly one synchronous invocation of the backend-scope body."
-  (let ((calls 0)
+  (let ((calls    0)
         (active-p t))
     (unwind-protect
          (multiple-value-prog1
@@ -47,12 +48,14 @@ The default rejects mutation instead of pretending that unlocked writes are safe
               resource context
               (lambda ()
                 (unless (and active-p (zerop calls))
-                  (error 'resource-protocol-error :uri (resource-uri resource)
+                  (error 'resource-protocol-error
+                         :uri    (resource-uri resource)
                          :reason "transaction body must be called exactly once synchronously"))
                 (incf calls)
                 (funcall thunk)))
            (unless (= calls 1)
-             (error 'resource-protocol-error :uri (resource-uri resource)
+             (error 'resource-protocol-error
+                    :uri    (resource-uri resource)
                     :reason "transaction scope did not invoke its body")))
       (setf active-p nil))))
 
@@ -63,7 +66,8 @@ If preparation exits without returning a handle, the adapter must release any
 partially allocated staging state. CONTEXT supplies external authorization.")
   (:method ((resource resource) context &key base-revision operations)
     (declare (ignore context base-revision operations))
-    (error 'resource-operation-unsupported :uri (resource-uri resource)
+    (error 'resource-operation-unsupported
+           :uri       (resource-uri resource)
            :operation ':stage)))
 
 (defgeneric prepared-change-validate (change context)
@@ -114,6 +118,7 @@ does not invalidate published state; recovery retries cleanup, never rollback.")
     (error 'resource-operation-unsupported
            :uri (resource-uri (prepared-change-resource change)) :operation ':finalize)))
 
+
 ;;;; -- Change set state machine --
 
 (defstruct (change-entry (:constructor change-entry--make (change)))
@@ -122,8 +127,8 @@ does not invalidate published state; recovery retries cleanup, never rollback.")
   (phase ':prepared))
 
 (defclass change-set ()
-  ((lock :initform (bordeaux-threads:make-lock "resource change set")
-         :reader change-set--lock
+  ((lock :initform      (bordeaux-threads:make-lock "resource change set")
+         :reader        change-set--lock
          :documentation "Serialize this set independently of backend scopes.")
    (requests :initarg :requests :reader change-set--requests
              :documentation "Original requests in caller order.")
@@ -191,9 +196,9 @@ does not invalidate published state; recovery retries cleanup, never rollback.")
 
 (defun change-set--cleanup (set published-p)
   "Retry pending cleanup, retaining a retryable state even on nonlocal exits."
-  (let ((failures nil)
-        (completed-p nil)
-        (context (change-set--context set))
+  (let ((failures      nil)
+        (completed-p   nil)
+        (context       (change-set--context set))
         (pending-state (if published-p ':cleanup-required ':recovery-required)))
     (setf (change-set-state set) ':recovering)
     (unwind-protect
@@ -270,14 +275,15 @@ atomically publish or signal without externally visible partial publication."
       (check-type request resource-change)
       (let ((uri (resource-uri (resource-change-resource request))))
         (when (gethash uri identities)
-          (error 'resource-protocol-error :uri uri
+          (error 'resource-protocol-error
+                 :uri    uri
                  :reason "duplicate resource identity in change set"))
         (setf (gethash uri identities) t))))
-  (let ((set (make-instance 'change-set :requests (copy-list requests)
-                            :context context :publisher publisher))
+  (let ((set        (make-instance 'change-set :requests (copy-list requests)
+                                   :context context :publisher publisher))
         (returned-p nil)
-        (cause nil)
-        (failures nil))
+        (cause      nil)
+        (failures   nil))
     (change-set--call-serialized
      set
      (lambda ()
@@ -297,12 +303,13 @@ atomically publish or signal without externally visible partial publication."
                              (resource-change-base-revision request)))
                           (dolist (request requests)
                             (let* ((resource (resource-change-resource request))
-                                   (change (resource-stage-operations
-                                            resource context
-                                            :base-revision (resource-change-base-revision request)
-                                            :operations (resource-change-operations request))))
+                                   (change   (resource-stage-operations
+                                              resource context
+                                              :base-revision (resource-change-base-revision request)
+                                              :operations    (resource-change-operations request))))
                               (unless (typep change 'prepared-change)
-                                (error 'resource-protocol-error :uri (resource-uri resource)
+                                (error 'resource-protocol-error
+                                       :uri    (resource-uri resource)
                                        :reason "stage must return a prepared-change"))
                               ;; Retain malformed returned handles for cleanup as well.
                               (setf (change-set--entries set)
@@ -311,7 +318,8 @@ atomically publish or signal without externally visible partial publication."
                               (unless (and (eq resource (prepared-change-resource change))
                                            (equal (resource-change-base-revision request)
                                                   (prepared-change-base-revision change)))
-                                (error 'resource-protocol-error :uri (resource-uri resource)
+                                (error 'resource-protocol-error
+                                       :uri    (resource-uri resource)
                                        :reason "prepared change must match resource and base revision"))))
                           (setf prepared-p t))
                      (unless prepared-p
@@ -334,7 +342,7 @@ Return SET and its observations as two values."
    (lambda ()
      (change-set--require-state set '(:staged))
      (let ((published-p nil)
-           (cause nil))
+           (cause       nil))
        (change-set--with-scopes
         set
         (lambda ()
@@ -396,11 +404,12 @@ Completed steps are not repeated. Use the retained set in change-set-error."
      set)))
 
 (defmethod resource-apply-operations ((resource resource) context
-                                    &key base-revision operations)
+                                      &key base-revision operations)
   "Use the staged protocol for a revision-gated single-resource mutation."
   (let ((set (change-set-stage
-              (list (make-resource-change resource :base-revision base-revision
-                                          :operations operations))
+              (list (make-resource-change resource
+                                          :base-revision base-revision
+                                          :operations    operations))
               context)))
     (change-set-commit set)
     (first (change-set-observations set))))
