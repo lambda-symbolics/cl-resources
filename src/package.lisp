@@ -1,4 +1,6 @@
 (defpackage #:cl-resources
+  (:documentation "Resources named by URIs, with revisions, and change sets that stage,
+commit and recover changes to several resources together.")
   (:use #:cl)
   (:export
    #:resource #:resource-uri #:resource-observation
