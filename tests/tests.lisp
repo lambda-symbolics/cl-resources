@@ -2,14 +2,18 @@
 
 ;;;; -- Dependency-free behavioral test harness --
 
-(defvar *test-checks* 0)
+(defvar *test-checks* 0
+  "The number of assertions run so far.")
 
-(defvar *test-events* nil)
+(defvar *test-events* nil
+  "Backend steps recorded as (URI STEP) lists, newest first.")
 
-(defvar *test-scopes* nil)
+(defvar *test-scopes* nil
+  "URIs of the backend transaction scopes now open, outermost first.")
 
 (define-condition test-injected-failure (error)
-  ((step :initarg :step :reader test-failure-step))
+  ((step :initarg :step :reader test-failure-step
+         :documentation "The backend step that failed."))
   (:documentation "Deterministic backend fault injection."))
 
 (defun test-check (value &optional (description "check"))

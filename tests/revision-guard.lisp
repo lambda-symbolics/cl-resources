@@ -1,8 +1,12 @@
 (in-package #:cl-resources)
 
 (defclass test-handle-resource (callback-resource)
-  ((handles :initform (make-hash-table :test #'equal) :reader test-resource-handles)
-   (guards :initform 0 :accessor test-resource-guards))
+  ((handles :initform      (make-hash-table :test #'equal)
+            :reader        test-resource-handles
+            :documentation "Literal revisions keyed by (CONTEXT HANDLE) lists.")
+   (guards :initform      0
+           :accessor      test-resource-guards
+           :documentation "The number of revision checks run."))
   (:documentation "Adapter fixture resolving caller-owned handles to literal revisions."))
 
 (defmethod resource-check-revision ((resource test-handle-resource) context expected)
