@@ -261,6 +261,20 @@ The generic base guard compares string revisions exactly with `string=`.
 Adapters can report an absent current state with `:actual-revision nil` when
 signaling their own stale condition.
 
+## Development
+
+```sh
+./script/bootstrap
+./script/check
+./script/check --fix
+```
+
+`./script/check` runs the tests, then checks the source with
+[cheque](https://github.com/lambda-symbolics/cheque) as `cheque.sexp`
+configures it. `--fix` skips the tests and repairs what cheque can repair.
+cheque and its tools are development dependencies: `checks/qlfile` lists them,
+and the check installs them on first use into `~/.cache/cheque/tools/`.
+
 ## Tests and license
 
 The tests cover URI grammar, resolver replacement/removal,
