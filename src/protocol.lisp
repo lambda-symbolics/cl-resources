@@ -9,8 +9,8 @@
 
 (define-condition resource-uri-malformed (resource-error)
   ((reason :initarg :reason :reader resource-uri-malformed-reason
-           :documentation "The violated URI grammar rule."))
-  (:documentation "A value is not a simple lowercase scheme:identifier URI.")
+           :documentation "The violated URI syntax or encoding rule."))
+  (:documentation "A resource URI or one of its components is malformed.")
   (:report (lambda (condition stream)
              (format stream "Malformed resource URI ~S: ~A"
                      (resource-error-uri condition)
@@ -95,6 +95,82 @@ normalization, network authority interpretation or authorization is performed."
                      (every #'graphic-char-p identifier))
           (reject "the identifier must be nonempty graphic text"))
         (values scheme identifier)))))
+
+(defun resource-uri-unreserved-octet-p (octet)
+  "Return true for an RFC 3986 unreserved ASCII octet."
+  (and (or (<= #x41 octet #x5A)
+           (<= #x61 octet #x7A)
+           (<= #x30 octet #x39)
+           (member octet '(#x2D #x2E #x5F #x7E)))
+       t))
+
+(defun resource-uri--scalar-character-p (character)
+  "Return true when CHARACTER has a Unicode scalar value."
+  (let ((code (char-code character)))
+    (and (<= code #x10FFFF) (not (<= #xD800 code #xDFFF)))))
+
+(defun resource-uri-encode (value literal-octet-p)
+  "Encode VALUE as UTF-8, preserving ASCII octets accepted by LITERAL-OCTET-P.
+Percent signs and all non-ASCII octets always use uppercase percent escapes."
+  (unless (every #'resource-uri--scalar-character-p value)
+    (error 'resource-uri-malformed :uri value :reason "the component is not valid Unicode"))
+  (with-output-to-string (stream)
+    (loop for octet across (babel:string-to-octets value :encoding ':utf-8 :errorp t)
+          do (if (and (< octet #x80) (/= octet #x25) (funcall literal-octet-p octet))
+                 (write-char (code-char octet) stream)
+                 (format stream "%~2,'0X" octet)))))
+
+(defun resource-uri--hex-digit (character)
+  "Return the value of one ASCII hexadecimal digit, or NIL."
+  (or (position character "0123456789ABCDEF" :test #'char=)
+      (position character "0123456789abcdef" :test #'char=)))
+
+(defun resource-uri-decode (uri encoded &key literal-character-p)
+  "Decode one component ENCODED as strict UTF-8, leaving literal plus signs alone.
+LITERAL-CHARACTER-P, when supplied, restricts unescaped characters. Signal
+RESOURCE-URI-MALFORMED with the original URI on a syntax or encoding error."
+  (let ((octets (make-array (length encoded)
+                            :element-type '(unsigned-byte 8)
+                            :adjustable   t
+                            :fill-pointer 0)))
+    (labels ((malformed (reason)
+               (error 'resource-uri-malformed :uri uri :reason reason))
+
+             (invalid-utf8 ()
+               (malformed "the percent-encoded identifier is not valid UTF-8")))
+      (loop with index = 0
+            with length = (length encoded)
+            while (< index length)
+            for character = (char encoded index)
+            do (cond
+                 ((char= character #\%)
+                  (when (> (+ index 3) length)
+                    (malformed "a percent escape is incomplete"))
+                  (let ((high (resource-uri--hex-digit (char encoded (1+ index))))
+                        (low  (resource-uri--hex-digit (char encoded (+ index 2)))))
+                    (unless (and high low)
+                      (malformed "a percent escape contains a non-hexadecimal digit"))
+                    (vector-push-extend (+ (* high 16) low) octets)
+                    (incf index 3)))
+                 ((and literal-character-p (not (funcall literal-character-p character)))
+                  (malformed "URI characters outside the permitted literal set must be percent encoded"))
+                 (t
+                  (unless (resource-uri--scalar-character-p character)
+                    (invalid-utf8))
+                  (if (< (char-code character) #x80)
+                      (vector-push-extend (char-code character) octets)
+                      (let ((bytes (babel:string-to-octets encoded
+                                                          :encoding ':utf-8
+                                                          :errorp   t
+                                                          :start    index
+                                                          :end      (1+ index))))
+                        (loop for octet across bytes do (vector-push-extend octet octets))))
+                  (incf index))))
+      (let ((decoded (handler-case (babel:octets-to-string octets :encoding ':utf-8 :errorp t)
+                       (babel:character-coding-error () (invalid-utf8)))))
+        (unless (every #'resource-uri--scalar-character-p decoded)
+          (invalid-utf8))
+        decoded))))
 
 (defun resource--check-revision-value (revision uri)
   "Require a nonempty opaque string revision and return it."
@@ -232,10 +308,15 @@ specialize this guard to resolve caller-scoped opaque revision handles.")
   "Return the resolver for SCHEME, or NIL, without resolving or authorizing access."
   (gethash scheme (resource-registry--resolvers registry)))
 
-(defun resource-registry-resolve (registry uri context)
-  "Resolve URI with REGISTRY and CONTEXT, without an implicit authority policy."
+(defun resource-registry-resolve (registry uri context &key before-resolve)
+  "Resolve URI with REGISTRY and CONTEXT, without an implicit authority policy.
+After parsing and selecting a resolver, call BEFORE-RESOLVE, if supplied, with
+the scheme and the selected resolver (possibly NIL). Ignore its return value.
+Dispatch that same resolver, or signal an unknown scheme if none was selected."
   (multiple-value-bind (scheme identifier) (resource-uri-parse uri)
     (let ((resolver (resource-registry-find registry scheme)))
+      (when before-resolve
+        (funcall before-resolve scheme resolver))
       (unless resolver
         (error 'resource-scheme-unknown :uri uri :scheme scheme))
       (let ((resource (resource-resolver-resolve resolver identifier context)))

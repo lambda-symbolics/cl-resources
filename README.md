@@ -2,7 +2,7 @@
 
 Authority-neutral, revisioned resources for Common Lisp. The library provides
 URI resolution, observations, operation discovery and recoverable staged change
-sets. Dependencies: ASDF and Bordeaux Threads. Package: `cl-resources`.
+sets. Dependencies: ASDF, Babel and Bordeaux Threads. Package: `cl-resources`.
 
 ## Load and test
 
@@ -37,6 +37,18 @@ return canonical resource identities. A URI grants no authority.
 - `resource-registry-unregister` returns removed resolver and presence boolean.
 - `resource-registry-schemes` returns a sorted fresh list.
 - `resource-registry-resolve` takes registry, URI and explicit caller context.
+  Optional `:before-resolve` receives the parsed scheme and selected resolver
+  (or `nil`) before unknown-scheme checking. Signal a condition there to deny
+  the request. On return, the same selected resolver is dispatched.
+
+Use the component codec only once the adapter knows which part to decode.
+`resource-uri-encode(value literal-octet-p)` encodes UTF-8 with uppercase
+percent escapes and leaves the permitted ASCII octets literal, except `%`.
+`resource-uri-unreserved-octet-p` provides the RFC 3986 unreserved set.
+`resource-uri-decode(uri encoded &key literal-character-p)` strictly decodes
+UTF-8 and optionally restricts unescaped characters. Literal `+` does not mean
+space. Invalid escapes, UTF-8 or literal characters signal
+`resource-uri-malformed` with the original `uri`.
 
 Subclass `resource-resolver` and implement
 `resource-resolver-resolve(resolver identifier context)`. Initialize resolvers

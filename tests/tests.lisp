@@ -147,6 +147,83 @@
     (test-check (zerop (test-backend-value backend)) "value restored")
     (test-check (zerop (test-backend-revision backend)) "revision restored")))
 
+(defun test-uri-components ()
+  "Check component spelling, strict decoding and independent literal policies."
+  (flet ((literal-p (character)
+           (resource-uri-unreserved-octet-p (char-code character))))
+    (dolist (case '(("" "") ("AZaz09-._~" "AZaz09-._~")
+                    ("custom/id å" "custom%2Fid%20%C3%A5")
+                    ("path/with % ž" "path%2Fwith%20%25%20%C5%BE")
+                    ("a+b" "a%2Bb") ("€😀" "%E2%82%AC%F0%9F%98%80")))
+      (destructuring-bind (plain encoded) case
+        (test-check (string= encoded (resource-uri-encode plain #'resource-uri-unreserved-octet-p)))
+        (test-check (string= plain (resource-uri-decode "x:original" encoded :literal-character-p #'literal-p)))))
+    (dolist (encoded '("raw/slash" "raw space" "å" "a+b"))
+      (test-condition 'resource-uri-malformed
+                      (lambda () (resource-uri-decode "x:original" encoded :literal-character-p #'literal-p)))))
+  (dolist (case '(("a+b" "a+b") ("a%2bb" "a+b") ("/%c5%be/+" "/ž/+")
+                  ("/ž %2F" "/ž /") ("%252F" "%2F")))
+    (destructuring-bind (encoded plain) case
+      (test-check (string= plain (resource-uri-decode "x:original" encoded)))))
+  (flet ((path-octet-p (octet)
+           (or (= octet #x2F) (resource-uri-unreserved-octet-p octet))))
+    (test-check (string= "/a%20b/%C5%BE" (resource-uri-encode "/a b/ž" #'path-octet-p))))
+  (test-check (string= "%25%C5%BE" (resource-uri-encode "%ž" (constantly t))))
+  (dolist (encoded '("%" "%F" "%GG" "%１0" "%FF" "%80" "%C0%AF" "%E2%82"
+                     "%C2A" "%ED%A0%80" "%F4%90%80%80" "%F5%80%80%80"))
+    (let* ((uri       (format nil "x:outer/~A" encoded))
+           (condition (test-condition 'resource-uri-malformed
+                                      (lambda () (resource-uri-decode uri encoded)))))
+      (test-check (eq uri (resource-error-uri condition))))))
+
+(defun test-registry-before-resolve ()
+  "Authorize exactly the selected resolver, even if the registry changes during the hook."
+  (let* ((registry    (make-resource-registry))
+         (seen        nil)
+         (replacement (make-instance 'callback-resolver
+                                      :scheme  "x"
+                                      :resolve (lambda (&rest arguments)
+                                                 (declare (ignore arguments))
+                                                 (error "Replacement resolver was dispatched."))))
+         (resolver    (make-instance 'callback-resolver
+                                      :scheme  "x"
+                                      :resolve (lambda (selected identifier context)
+                                                 (setf seen (list selected identifier context))
+                                                 (make-instance 'resource :uri "x:canonical")))))
+    (resource-registry-register registry resolver)
+    (test-check
+     (string= "x:canonical"
+              (resource-uri
+               (resource-registry-resolve
+                registry "x:opaque%2Fid" ':caller
+                :before-resolve (lambda (scheme selected)
+                                  (test-check (string= scheme "x"))
+                                  (test-check (eq selected resolver))
+                                  (resource-registry-register registry replacement))))))
+    (test-check (equal seen (list resolver "opaque%2Fid" ':caller)))
+    (test-check (eq replacement (resource-registry-find registry "x")))
+    (test-condition 'resource-uri-malformed
+                    (lambda ()
+                      (resource-registry-resolve registry "malformed" nil
+                                                 :before-resolve (lambda (&rest arguments)
+                                                                   (declare (ignore arguments))
+                                                                   (error "Guard ran on malformed URI.")))))
+    (test-condition 'resource-access-denied
+                    (lambda ()
+                      (resource-registry-resolve
+                       registry "unknown:id" nil
+                       :before-resolve (lambda (scheme selected)
+                                         (test-check (string= scheme "unknown"))
+                                         (test-check (null selected))
+                                         (error 'resource-access-denied :uri "unknown:id")))))
+    (test-condition 'resource-scheme-unknown
+                    (lambda ()
+                      (resource-registry-resolve
+                       registry "unknown:id" nil
+                       :before-resolve (lambda (scheme selected)
+                                         (declare (ignore scheme))
+                                         (test-check (null selected))))))))
+
 (defun test-identities-and-registry ()
   "Exercise URI grammar, resolver lifecycle and explicit context."
   (dolist (uri '("x:a" "work-space+v1.2:path with spaces" "file:/a:b" "x:%20" "x://host/key"))
@@ -682,6 +759,8 @@
 (defun run-tests ()
   "Run all protocol, lifecycle and fault-injection tests; return assertion count."
   (let ((*test-checks* 0) (*test-events* nil) (*test-scopes* nil))
+    (test-uri-components)
+    (test-registry-before-resolve)
     (test-identities-and-registry)
     (test-observation-and-authority)
     (test-success-and-lifecycle)

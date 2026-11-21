@@ -3,7 +3,7 @@
   :author      "Lambda Symbolics"
   :license     "ISC"
   :version     "0.1.0"
-  :depends-on  ("bordeaux-threads")
+  :depends-on  ("babel" "bordeaux-threads")
   :serial      t
   :components  ((:file "src/package")
                 (:file "src/protocol")

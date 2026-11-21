@@ -7,6 +7,7 @@ commit and recover changes to several resources together.")
    #:resource-observation-uri #:resource-observation-revision
    #:resource-observation-content #:resource-observation-metadata
    #:resource-uri-parse #:resource-capabilities #:resource-observe
+   #:resource-uri-encode #:resource-uri-decode #:resource-uri-unreserved-octet-p
    #:resource-apply-operations #:resource-check-revision
    #:resource-resolver #:resource-resolver-scheme #:resource-resolver-resolve
    #:resource-registry #:make-resource-registry #:resource-registry-register
